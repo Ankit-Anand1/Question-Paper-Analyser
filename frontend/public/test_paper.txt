@@ -1,0 +1,1 @@
+Q1: Explain DBMS Normalization? Q2: What is OS Scheduling? Q3: Define TCP/IP layers.
