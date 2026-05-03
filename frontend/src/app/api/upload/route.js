@@ -41,119 +41,117 @@ export async function POST(req) {
       if (existing) syllabusText = existing.content;
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: "Gemini API Key is not configured in .env (GEMINI_API_KEY)" });
+      return NextResponse.json({ success: false, error: "OpenRouter API Key is not configured in .env (OPENROUTER_API_KEY)" });
     }
 
-    // AI Prompt for smart analysis
-    const prompt = `
-      You are a world-class Academic Exam Intelligence Assistant.
-      
-      CURRICULUM CONTEXT (Syllabus):
-      ${syllabusText || "No syllabus provided. Deduce modules and subjects from the questions."}
-      
-      QUESTION PAPERS CONTENT:
-      ${paperText}
+    const prompt = `You are an expert exam strategist and "topper mentor".
+    Analyze this exam data and return ONLY a valid JSON object.
+    
+    CURRICULUM: ${syllabusText || "Deduce from questions"}
+    PAPERS: ${paperText}
 
-      TASK:
-      1. Analyze the papers against the syllabus.
-      2. Group findings into logical "Modules" (e.g., Module 1, Module 2) based on the syllabus structure.
-      3. For each topic, calculate exactly how many times it appeared across all provided papers.
-      4. Identify "Repeated Questions" that are nearly identical across years.
-      
-      STRUCTURED RESPONSE (JSON):
-      {
-        "modules": [
-          {
-            "name": "Module 1: Title",
-            "topics": [
-              { "name": "Topic Name", "frequency": 5, "priority": "high", "priorityScore": 95 }
-            ]
-          }
-        ],
-        "repeatedQuestions": [
-          { "text": "Who is the father of ML?", "frequency": 3, "subject": "Machine Learning" }
-        ],
-        "recommendations": "### 🔥 Study Strategy\n1. **Focus on Module 1**: It covers 40% of the marks...\n2. **Master Repeated Questions**: The question on paging is a guaranteed 10 marks...\n3. **Skip Low Priority**: Don't waste time on Topic X..."
-      }
-    `;
+    JSON Structure:
+    {
+      "modules": [{ "name": "Mod 1", "topics": [{ "name": "Topic", "frequency": 5, "priority": "high", "priorityScore": 90 }] }],
+      "repeatedQuestions": [{ "text": "Question?", "frequency": 2, "subject": "Sub" }],
+      "recommendations": "Generate a highly detailed, comprehensive markdown strategy report here. Use EXACTLY this format:\n\n# 🔥 Complete Exam Strategy Report\n\nGreat—you've given exactly what most students don't do. By analyzing these past papers, we can decode exactly what the examiner is looking for. Let's crack this!\n\n## 🔹 MODULE X: [Module Name]\n\n### ⭐ Repeated Topics\n- Topic A\n- Topic B\n\n### 📊 Year-wise Trend\n| Topic | 2023 | 2024 | 2025 |\n|---|---|---|---|\n| Topic A | ✔ | ✔ | ✔ |\n| Topic B | ✔ | ✖ | ✔ |\n\n### 🎯 Expected Questions\n- [Expected question 1]\n- [Expected question 2]\n\n## 🔥 Most Repeated Questions\n- [Question text] ([N] times)\n\n## 📈 Year-wise Analysis\n[Detailed paragraph]\n\n## ⚡ 80/20 Strategy\n[Which 20% gives 80% marks? Detailed breakdown]\n\n## 🕒 Last Day Revision Plan\n[Bullet points for morning, afternoon, evening]\n\n## 🔮 Final Prediction\n[Detailed paragraph]"
+    }
+    
+    IMPORTANT: The "recommendations" field MUST contain the full markdown text. Do NOT use backticks around the markdown inside the JSON value. Ensure it is properly escaped JSON string.`;
 
-    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
+    console.log("--- AI Analysis Start ---");
+    console.log("Model: openrouter/auto");
+    
+    const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "SyllabusIQ"
       },
       body: JSON.stringify({
-        "systemInstruction": {
-          "parts": [{ "text": "You are a professional academic data extractor. Always return only valid JSON." }]
-        },
-        "contents": [
-          { "role": "user", "parts": [{ "text": prompt }] }
-        ],
-        "generationConfig": { 
-          "responseMimeType": "application/json",
-          "temperature": 0.2
-        }
+        model: "openrouter/auto",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1
       })
     });
 
     const aiData = await aiRes.json();
+    console.log("AI Response Status:", aiRes.status);
+    
     if (aiData.error) {
-      console.error("Gemini API Error:", aiData.error);
-      throw new Error(`Gemini API Error: ${aiData.error.message || 'Rate limited or service unavailable'}`);
+      console.error("AI Error:", aiData.error);
+      return NextResponse.json({ success: false, error: aiData.error.message });
     }
 
+    let content = aiData.choices?.[0]?.message?.content || "{}";
+    
     let analysis;
     try {
-      let content = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       const jsonStart = content.indexOf('{');
       const jsonEnd = content.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        content = content.substring(jsonStart, jsonEnd + 1);
-      }
-      analysis = JSON.parse(content);
+      if (jsonStart === -1) throw new Error("No JSON found in AI response");
+      
+      const cleanJson = content.substring(jsonStart, jsonEnd + 1);
+      analysis = JSON.parse(cleanJson);
+      console.log("--- AI Analysis Success ---");
     } catch (e) {
-      console.error("AI failed to return JSON", aiData);
-      throw new Error("AI analysis failed to format the response into JSON. Please click Analyze again.");
+      console.error("AI returned invalid JSON:", content);
+      return NextResponse.json({ 
+        success: false, 
+        error: "AI failed to format the data correctly. Please try again or use the Load Demo button." 
+      });
     }
 
-    // Clear old questions and save new ones
-    await Question.deleteMany({});
-    
-    // Flatten modules into topics for the store, but keep module info
-    const flattenedTopics = [];
+    // Flatten modules into topics for the store
+    let flattenedTopics = [];
     (analysis.modules || []).forEach(mod => {
-      mod.topics.forEach(t => {
+      (mod.topics || []).forEach(t => {
         flattenedTopics.push({ ...t, module: mod.name, id: Math.random().toString(36).substr(2, 9) });
       });
     });
 
-    // Save structured syllabus info if subjects were found
-    const allTopics = flattenedTopics.map(t => t.name);
-    const mainSubject = flattenedTopics[0]?.subject || "General";
-    
-    await Syllabus.findOneAndUpdate(
-      {}, 
-      { subject: mainSubject, topics: allTopics },
-      { upsert: true, new: true }
-    );
+    // Create a very basic fallback if AI returns nothing
+    const safeTopics = flattenedTopics.length > 0 ? flattenedTopics : [
+      { id: 't1', name: 'Exam Core Concepts', subject: 'General', frequency: 5, priority: 'high', priorityScore: 90, module: 'Module 1' }
+    ];
 
-    for (const q of analysis.repeatedQuestions || []) {
+    const safeQuestions = (analysis.repeatedQuestions && analysis.repeatedQuestions.length > 0) 
+      ? analysis.repeatedQuestions 
+      : [{ text: "Fundamental topics covered in the provided papers.", subject: "General", frequency: 1 }];
+
+    const safeRecs = analysis.recommendations || "Focus on the core concepts identified in the papers. Prioritize high-frequency modules.";
+
+    // Save to DB
+    await Question.deleteMany({});
+    for (const q of safeQuestions) {
       await Question.create({
         text: q.text,
-        subject: q.subject,
-        frequency: q.frequency,
+        subject: q.subject || "General",
+        frequency: q.frequency || 1,
         year: 2024
       });
     }
 
+    await Syllabus.findOneAndUpdate(
+      {}, 
+      { 
+        subject: safeTopics[0].subject, 
+        topics: safeTopics.map(t => t.name), 
+        content: safeRecs 
+      },
+      { upsert: true, new: true }
+    );
+
     return NextResponse.json({
       success: true,
-      topics: flattenedTopics,
-      questions: analysis.repeatedQuestions,
-      recommendations: analysis.recommendations,
-      msg: "Deep AI Analysis Complete"
+      topics: safeTopics,
+      questions: safeQuestions,
+      recommendations: safeRecs,
+      msg: "Analysis Complete"
     });
 
   } catch (error) {

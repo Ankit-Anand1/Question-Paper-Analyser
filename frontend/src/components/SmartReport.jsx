@@ -10,14 +10,17 @@ import rehypeRaw from 'rehype-raw'
 export default function SmartReport() {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const { questions, smartReport, setSmartReport } = useStore()
+  const { questions, smartReport, setSmartReport, recommendations } = useStore()
 
   useEffect(() => {
     // If questions exist but the report hasn't been generated yet, fetch it.
-    // If it's already generated, it instantly shows without refreshing!
     if (questions.length > 0 && !smartReport && !loading) {
       setLoading(true)
-      fetch("/api/generate-report")
+      fetch("/api/generate-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questions })
+      })
         .then(res => res.json())
         .then(data => {
           setSmartReport(data.report)

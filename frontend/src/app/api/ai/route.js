@@ -5,61 +5,46 @@ export async function POST(req) {
     const data = await req.json();
     const { question, topics, recommendations } = data;
 
-    const actualKey = process.env.GEMINI_API_KEY;
+    const actualKey = process.env.OPENROUTER_API_KEY;
 
     if (!actualKey) {
       return NextResponse.json({
         success: false,
-        answer: "The AI Assistant is not configured yet. Please add your GEMINI_API_KEY to the .env file and restart the server."
+        answer: "The AI Assistant is not configured. Please add your OPENROUTER_API_KEY to the .env file and restart the server."
       });
     }
 
     const topicList = topics?.map(t => `${t.name} (${t.subject}, priority: ${t.priority}, freq: ${t.frequency}x)`).join("\n") || 'No topics analyzed yet.';
 
     const sysPrompt = `You are SyllabusIQ — an expert academic exam strategist.
+    ${recommendations || 'Not generated yet.'}
+    Topics: ${topicList}`;
 
-CONTEXT FROM PAPER ANALYSIS:
-Priority Topics:
-${topicList}
-
-AI Study Strategy from Analysis:
-${recommendations || 'Not generated yet — user has not uploaded papers.'}
-
-INSTRUCTIONS:
-- Give concise, actionable advice based on the above data
-- Use bullet points and bold for emphasis
-- Stay focused on exam preparation
-- If no data is available, ask the user to upload their papers first`;
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${actualKey}`, {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${actualKey}`,
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "SyllabusIQ"
       },
       body: JSON.stringify({
-        "systemInstruction": {
-          "parts": [{ "text": sysPrompt }]
-        },
-        "contents": [
-           { "role": "user", "parts": [{ "text": question }] }
+        model: "openrouter/auto",
+        messages: [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: question }
         ]
       })
     });
 
-    const geminiData = await res.json();
-    
-    if (geminiData.error) {
-      return NextResponse.json({
-        success: false,
-        answer: `AI Error: ${geminiData.error.message}`
-      });
-    }
+    const aiData = await res.json();
+    if (aiData.error) throw new Error(aiData.error.message);
 
     return NextResponse.json({
       success: true,
-      answer: geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated."
+      answer: aiData.choices?.[0]?.message?.content || "No response."
     });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to reach AI Engine", success: false, answer: "Connection error. Please try again." });
+    return NextResponse.json({ error: error.message, success: false, answer: "AI Error: " + error.message });
   }
 }

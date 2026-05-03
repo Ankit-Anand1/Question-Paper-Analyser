@@ -3,11 +3,9 @@ import { connectDB } from "@/lib/db";
 import Question from "@/models/Question";
 import Syllabus from "@/models/Syllabus";
 
-export async function GET() {
+export async function POST(req) {
   try {
-    await connectDB();
-
-    const questions = await Question.find();
+    const { questions } = await req.json();
     if (!questions || questions.length === 0) {
       return NextResponse.json({
         success: false,
@@ -24,8 +22,7 @@ export async function GET() {
       year: q.year
     }));
 
-    const syllabus = await Syllabus.findOne();
-    const syllabusSubject = syllabus?.subject || "General";
+    const syllabusSubject = questions[0]?.subject || "General";
 
     const prompt = `
 You are an expert exam strategist and "topper mentor".
@@ -86,35 +83,38 @@ IMPORTANT INSTRUCTIONS:
 - Use emojis exactly as demonstrated.
     `;
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
       return NextResponse.json({
         success: false,
-        report: "Gemini API Key is missing. Please configure GEMINI_API_KEY in your .env file."
+        report: "OpenRouter API Key is missing. Please configure OPENROUTER_API_KEY in your .env file."
       });
     }
 
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "SyllabusIQ"
       },
       body: JSON.stringify({
-        "contents": [
-          { "role": "user", "parts": [{ "text": prompt }] }
-        ]
+        model: "openrouter/auto",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7
       })
     });
 
-    const geminiData = await res.json();
-    if (geminiData.error) {
+    const aiData = await res.json();
+    if (aiData.error) {
       return NextResponse.json({ 
         success: false, 
-        report: `AI Error: ${geminiData.error.message}` 
+        report: `AI Error: ${aiData.error.message}` 
       });
     }
 
-    const reportText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Failed to generate AI report.";
+    const reportText = aiData.choices?.[0]?.message?.content || "Failed to generate AI report.";
 
     return NextResponse.json({
       success: true,

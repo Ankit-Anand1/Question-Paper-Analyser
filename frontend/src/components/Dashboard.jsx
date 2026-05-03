@@ -126,18 +126,17 @@ export default function Dashboard({ onTabChange }) {
   const [localDate, setLocalDate] = useState(examDate || new Date().toISOString().split('T')[0])
 
   useEffect(() => {
-    // Only fetch from DB if no data is already in the store (fresh page load)
-    // Don't overwrite demo data that was just loaded
-    if (topics.length === 0) {
-      fetch('/api/questions')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.questions?.length > 0) {
-            setQuestions(data.questions);
-          }
-        }).catch(() => { });
+    // If store is empty, try one quick sync, otherwise stay as is
+    if (questions.length === 0) {
+      fetch('/api/sync').then(res => res.json()).then(data => {
+        if (data.success) {
+          setQuestions(data.questions || []);
+          setTopics(data.topics || []);
+          useStore.setState({ recommendations: data.recommendations });
+        }
+      }).catch(() => {});
     }
-  }, []) // intentionally empty deps — only run once on mount
+  }, []);
 
 
   const highPriority = topics.filter(t => t.priority === 'high').length > 0

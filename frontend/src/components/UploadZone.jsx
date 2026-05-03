@@ -12,7 +12,7 @@ export default function UploadZone({ onDone }) {
   const paperRef = useRef(null)
   const syllabusRef = useRef(null)
 
-  const { setQuestions, setTopics, setTrendData, addUploadedFile, setAnalysisComplete, setIsAnalyzing, setRecommendations } = useStore()
+  const { setQuestions, setTopics, setTrendData, addUploadedFile, setAnalysisComplete, setIsAnalyzing, setRecommendations, setActiveTab } = useStore()
 
   const addPaperFiles = (fileList) => {
     const valid = Array.from(fileList).filter(f => f.name.match(/\.(pdf|txt)$/i))
@@ -80,8 +80,12 @@ export default function UploadZone({ onDone }) {
       paperFiles.forEach(f => addUploadedFile(f.name))
       setAnalysisComplete(true)
       setStatus('done')
-      setMsg('✅ AI Analysis Complete — Check Dashboard')
-      setTimeout(() => onDone?.(), 1500)
+      setMsg('✅ AI Analysis Complete!')
+      
+      // Go to dashboard immediately
+      setTimeout(() => {
+        setActiveTab('dashboard');
+      }, 1000)
 
     } catch (e) {
       console.error(e)
